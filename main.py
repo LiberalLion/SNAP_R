@@ -33,28 +33,29 @@ def is_target(screen_name, disable_targeting, model_file='cluster.pkl'):
     """
     if disable_targeting:
         return True
-    else:
-        auth = tweepy.OAuthHandler(credentials.consumer_key,
-                                   credentials.consumer_secret)
-        auth.set_access_token(credentials.access_token,
-                              credentials.access_token_secret)
-        api = tweepy.API(auth, parser=tweepy.parsers.JSONParser())
-        user_array = numpy.array([api.get_user(screen_name=screen_name)])
-        model = joblib.load(model_file)
-        cluster_label = model.predict(user_array)
-        return cluster_label == 1
+    auth = tweepy.OAuthHandler(credentials.consumer_key,
+                               credentials.consumer_secret)
+    auth.set_access_token(credentials.access_token,
+                          credentials.access_token_secret)
+    api = tweepy.API(auth, parser=tweepy.parsers.JSONParser())
+    user_array = numpy.array([api.get_user(screen_name=screen_name)])
+    model = joblib.load(model_file)
+    cluster_label = model.predict(user_array)
+    return cluster_label == 1
 
 
 def preprocess_post(post):
-    processed_post_text = []
-    for word in post["text"].split(" "):
+    processed_post_text = [
+        word
+        for word in post["text"].split(" ")
         if (
-                len(word) > 0 and       # Remove empty strings
-                word[0] != '@' and      # Remove at mentions and usernames
-                word[0] != '/' and      # Remove emojis and some weird stuff
-                "http" not in word and  # Remove links
-                "RT" not in word):      # Remove RTs
-            processed_post_text.append(word)
+            len(word) > 0
+            and word[0] != '@'  # Remove empty strings
+            and word[0] != '/'  # Remove at mentions and usernames
+            and "http" not in word  # Remove emojis and some weird stuff
+            and "RT" not in word  # Remove links
+        )
+    ]
     return " ".join(processed_post_text)
 
 
@@ -73,9 +74,7 @@ def gen_markov_status(screen_name, timeline, short_url):
     processed_timeline_text = [preprocess_post(post) for post in timeline]
     text_model = markovify.text.NewlineText("\n".join(processed_timeline_text))
     status_len = STATUS_MAX_LEN - (len(screen_name) + 2) - (len(short_url) + 1)
-    return "@" + screen_name + " " + \
-           text_model.make_short_sentence(status_len) + \
-           " " + short_url
+    return f"@{screen_name} {text_model.make_short_sentence(status_len)} {short_url}"
 
 
 def gen_lstm_status(screen_name, timeline, short_url, depth):
@@ -93,8 +92,8 @@ def gen_lstm_status(screen_name, timeline, short_url, depth):
 
     # Generates a status using a helper bash script.
     proc = subprocess.Popen([NN_SAMPLE_COMMAND, topic], stdout=subprocess.PIPE)
-    status = topic + " " + proc.stdout.read().split("\n")[-2].strip()
-    return "@" + screen_name + " " + status + " " + short_url
+    status = f"{topic} " + proc.stdout.read().split("\n")[-2].strip()
+    return f"@{screen_name} {status} {short_url}"
 
 
 def post_status_and_sleep(status, depth):
@@ -123,16 +122,16 @@ def schedule_status_and_sleep(status, timeline, depth):
 
     # Wrap the status command using echo, so the status command can
     # be piped to another process
-    echo_wrapper = "echo '" + status_command + "'"
+    echo_wrapper = f"echo '{status_command}'"
 
     # randomize minute of posted time
     random_minute = random.randint(0,59)
-    
+
     # shell command for scheduling the script for the given time
-    at_command = " at " + str(post_time) + ":" + "{:0>2}".format(random_minute)
+    at_command = f" at {str(post_time)}:" + "{:0>2}".format(random_minute)
 
     # put it all together
-    proc = subprocess.call(echo_wrapper + "|" + at_command, shell=True)
+    proc = subprocess.call(f"{echo_wrapper}|{at_command}", shell=True)
 
     time.sleep(max(SECONDS_PER_TIMELINE * depth, 0))
 
